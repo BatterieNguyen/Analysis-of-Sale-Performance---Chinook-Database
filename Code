@@ -1,0 +1,318 @@
+# USE chinook;
+
+-- -------------------------------------- --
+-- QUESTION 2: OVERVIEW OF THE DATA       --
+-- -------------------------------------- --
+
+-- 2.1. Information of tracks sold (artist_album_genre)
+/*
+SELECT 	t.Name  AS Track,
+		g.Name AS Genre,
+        al.Title AS Album,
+        a.Name AS Artist,
+		COUNT(il.InvoiceLineId) AS SoldTracks
+	
+  FROM InvoiceLine il INNER JOIN track t 	ON il.TrackId = t.TrackId
+					   INNER JOIN genre G 	ON t.GenreId = g.GenreId
+                       INNER JOIN album al ON t.AlbumId = al.AlbumId
+                       INNER JOIN artist a ON al.ArtistId = a.ArtistId
+  GROUP BY t.Name, g.Name, al.Title, a.Name
+  ORDER BY SoldTracks DESC;
+*/
+
+-- 2.2. Information of employee who generate the sales for the store
+/*
+SELECT 	DISTINCT e.employeeId,
+		CONCAT(e.FirstName, ' ', e.LastName) AS FullName,
+        e.BirthDate, e.Hiredate, e.Address, e.Email
+  FROM	employee e INNER JOIN customer c ON e.EmployeeId = c.SupportRepId;
+*/
+
+-- 2.3. Information of customers associated with sales order by descending values
+/*
+SELECT	DISTINCT c.CustomerId,
+		CONCAT(c.FirstName, ' ', c.LastName) AS FullName,
+        c.Company, c.Address, c.Country, c.Email,
+        SUM(i.Total) AS TotalPurchase
+  FROM	customer c INNER JOIN invoice i ON c.customerId = i.CustomerId
+ GROUP	BY	c.CustomerId, FullName, c.Company, c.Address, c.Country, c.Email
+ ORDER	BY	TotalPurchase;
+*/
+
+-- 2.4. Information of all tracks, albums of artists that are available in the store
+/*
+SELECT	DISTINCT a.Name AS Artist,
+		al.Title AS Album,
+        t.Name AS Track,
+        g.Name AS Genre,
+        t.Milliseconds, t.UnitPrice
+  FROM	artist a 
+		INNER JOIN album al ON a.ArtistId = al.ArtistId
+        INNER JOIN track t	ON t.albumId = al.albumId
+        INNER JOIN genre g	ON t.GenreId = g.GenreId
+	*/			 
+
+-- -------------------------------------- --
+-- QUESTION 3: SELECT ALBUMS TO PURCHASE  --
+-- -------------------------------------- --
+-- 3.1. The Genres were sold the most in the USA
+#---------------------------- Using INNER JOIN to match tables ----------------------------#
+/*
+  SELECT	g.name,
+			COUNT(il.InvoiceLineId) AS sold_track,
+			i.BillingCountry
+	FROM	InvoiceLines il INNER JOIN Invoices i 	ON il.InvoiceId = i.InvoiceId
+							INNER JOIN Tracks t		ON il.TrackId = t.TrackId
+							INNER JOIN Genres g		ON t.GenreId = g.GenreId
+   WHERE	i.BillingCountry = 'USA'
+GROUP BY	g.name
+ORDER BY	sold_track DESC;
+*/
+#------------------------- Using WITH to create a temporary table -------------------------#
+/*
+WITH tracksalesUSA AS (	SELECT	t.GenreId,
+								COUNT(il.TrackId) AS Track_Sales,
+								i.BillingCountry
+						  FROM	invoice i	INNER JOIN invoiceline il	ON i.InvoiceId = il.InvoiceId
+											INNER JOIN track t			ON il.TrackId = t.TrackId
+						 WHERE	i.BillingCountry = 'USA'
+					  GROUP BY	t.GenreId)
+                      
+  SELECT	g.Name AS Genre,
+			tsu.Track_Sales,
+			tsu.BillingCountry
+	FROM	tracksalesUSA tsu	INNER JOIN genre g	ON tsu.GenreId = g.GenreId
+ORDER BY	tsu.Track_Sales DESC;
+*/
+
+-- 3.2 The artists who have the highest number of tracks sold in Rock style in USA 
+/*
+WITH tracksalesUSA AS (	SELECT	t.GenreId, t.Name AS Track,
+								a.Name AS Artist,
+								il.InvoicelineId,
+								i.BillingCountry
+						  FROM	invoice i	INNER JOIN invoiceline il	ON i.InvoiceId = il.InvoiceId
+											INNER JOIN track t			ON il.TrackId = t.TrackId
+                                            INNER JOIN album al		ON t.AlbumId = al.AlbumId
+                                            INNER JOIN artist a 		ON a.ArtistId = al.ArtistId
+						 WHERE	i.BillingCountry = 'USA')
+                         
+  SELECT	Artist, Genre, Trackssold
+	FROM	
+			( SELECT	g.Name AS Genre,
+						tsu.Artist,
+						COUNT(invoicelineId) AS Trackssold,
+						CASE WHEN g.name = 'Rock' THEN 0
+							 WHEN g.name = 'Latin' THEN 1
+							 ELSE 2
+						END AS Sort
+				FROM  tracksalesUSA tsu	INNER JOIN genre g	 ON tsu.GenreId = g.GenreId
+			   WHERE  g.Name IN ('Rock', 'Latin', 'Metal')
+			GROUP BY  Genre, tsu.Artist				
+			ORDER BY  Trackssold DESC) AS rlm
+	WHERE	Trackssold > 10
+ ORDER BY Sort ASC,  trackssold DESC;
+*/
+
+-- ------------------------------------------------- --
+-- QUESTION 4: ANALYZING EMPLOYEE SALES PERFORMANCE  --
+-- ------------------------------------------------- -- 
+/*
+  SELECT	c.SupportRepId,
+			CONCAT(e.FirstName, ' ', e.LastName) AS FullName,
+            COUNT(i.CustomerId) AS customer_support,
+			SUM(i.Total) AS total_purchase
+	FROM	invoice i INNER JOIN customer c ON i.CustomerId = c.CustomerId
+					  INNER JOIN employee e ON c.SupportRepId = e.EmployeeId
+GROUP BY	c.SupportRepId
+ORDER BY	c.SupportRepId;
+
+*/
+
+
+-- --------------------------------------- --
+-- QUESTION 5: ANALYZING SALES BY COUNTRY  --
+-- --------------------------------------- -- 
+/*
+WITH CustomerbyCountry AS
+(SELECT 
+		CASE WHEN (SELECT COUNT(CustomerId) 					 -- Use subquery to create a new column, namely Country
+					 FROM customer								 -- in customers table
+				    WHERE Country = c.Country) = 1 THEN 'Other'  -- in which records of new Country column are the same with those of the existing Country column
+			 ELSE Country										 -- then, divide it into cases which are countries, and other
+		 END AS Country,
+		 c.CustomerId,
+		 i.InvoiceId,
+		 il.UnitPrice 
+   FROM  customer c  INNER JOIN invoice i 	    ON c.CustomerId = i.customerId
+					 INNER JOIN invoiceline il  ON i.invoiceId = il.InvoiceId)
+
+SElECT 	Country, TotalCustomers, TotalSales, AverageSales, AverageOrders
+  FROM (  SELECT  Country,
+				  COUNT(DISTINCT CustomerId) AS TotalCustomers,
+				  SUM(UnitPrice) AS TotalSales,
+				  ROUND(SUM(UnitPrice)/ COUNT(DISTINCT CustomerId), 2) AS AverageSales,
+				  ROUND(SUM(UnitPrice)/ COUNT(DISTINCT InvoiceId), 2) AS AverageOrders,
+				  CASE WHEN Country = 'Other' THEN 1
+					   ELSE 0
+				  END AS Sort
+		   FROM   CustomerbyCountry
+	   GROUP BY   Country
+	   ORDER BY   Sort ASC, TotalCustomers DESC) AS Calculations;
+*/
+
+-- ---------------------------------------- --     
+-- QUESTION 6: ALBUMS VS INDIVIDUAL TRACKS  --
+-- ---------------------------------------- -- 
+/*
+WITH purchasedtrack_by_invoice AS
+					(SELECT il.invoiceId,
+							t.albumId,  
+                            COUNT(il.trackId) AS purchased_track
+					   FROM	track t INNER JOIN invoiceline il ON t.trackId = il.trackId
+					  GROUP BY albumId, invoiceId),
+	track_comparison AS 
+					(SELECT pbi.*,
+							COUNT(t.trackId) AS Track
+					   FROM track t 
+							INNER JOIN purchasedtrack_by_invoice pbi ON t.albumId = pbi.albumId
+					  GROUP BY albumId, pbi.invoiceId
+					  ORDER BY invoiceId),
+	label AS
+					(SELECT *,
+							CASE WHEN Track = purchased_track THEN 'Full Album purchased'
+								 ELSE 'Individual Track purchased'
+							END AS Label
+					   FROM track_comparison)
+
+  SELECT	Label AS Purchase_behavior,
+			COUNT(Label) AS Count,
+			ROUND(COUNT(Label) *100/ (SELECT COUNT(Label)
+									FROM Label), 2) AS Proportion
+	FROM	label
+GROUP BY 	Purchase_behavior;
+
+*/
+
+-- --------------------------------- --
+-- QUESTION 7: ADDITIONAL EXPLORATIONS  --
+-- --------------------------------- -- 
+-- 7.1. WHICH ARTISTS ARE USED IN THE MOST PLAYLIST?
+
+/*
+WITH purchasedtracks_in_playlist AS
+						(SELECT	COUNT(DISTINCT pl.playlistId) AS tracks_playlists,
+								al.artistId
+						   FROM	playlisttrack pl	
+								INNER JOIN	track t			ON pl.trackId = t.trackId
+								INNER JOIN	invoiceline il	ON t.trackId = il.trackId
+								INNER JOIN	album al		ON t.albumId = al.albumId
+						  GROUP BY al.artistId),
+
+	playlists_by_artists AS
+						(SELECT	COUNT(DISTINCT pl.playlistId) AS Num_of_playlists,
+								al.artistId
+						   FROM	playlisttrack pl	
+								INNER JOIN	track t		ON pl.trackId = t.trackId
+								INNER JOIN	album al	ON t.albumId = al.albumId
+						  GROUP BY al.artistId)
+
+SELECT	a.Name AS Artist,
+		pa.Num_of_playlists,
+        pp.Tracks_playlists
+  FROM  artist a INNER JOIN purchasedtracks_in_playlist pp 	ON pp.artistId = a.artistId
+				 INNER JOIN  playlists_by_artists pa 		ON a.artistId = pa.artistId
+  ORDER BY 2 DESC;
+*/
+
+-- 7.2. HOW MANY TRACKS HAVE BEEN PURCHASED VS NOT PURCHASED?
+/*
+
+WITH status_of_track AS 
+						(SELECT	DISTINCT trackId,
+								Label,
+								CASE WHEN Label = 'Purchased' THEN '1'
+									 ELSE '0'
+								END AS Category
+						  FROM 
+								(SELECT t.trackId,
+										il.invoicelineId,
+										CASE WHEN il.InvoicelineId IS NULL THEN 'Purchased'
+											 ELSE 'Not Purchased'
+										END AS Label
+								   FROM track t 
+										LEFT JOIN invoiceline il ON t.trackId = il.trackId) AS label)
+
+  SELECT Label,
+		 COUNT(Category) AS Tracks,
+		 ROUND(COUNT(Category) *100/ (SELECT COUNT(TrackId) FROM track), 2) AS percent
+	FROM status_of_track
+   GROUP BY Label
+   ORDER BY tracks;
+*/
+
+-- 7.3. IS THE RANGE OF TRACKS IN THE STORE REFLECTIVE OF THEIR SALES POPULARITY?
+/*
+WITH purchased_tracks AS 
+						(SELECT	g.Genreid,
+								g.Name AS Genre,
+								COUNT(il.invoicelineId) AS Purchased_track,
+								SUM(il.Unitprice) AS Sales
+						  FROM  invoiceline il  
+								INNER JOIN track t 	ON il.trackId = t.trackId
+								INNER JOIN genre g 	ON t.genreId = g.genreId
+						  GROUP BY Genre, g.GenreId
+						  ORDER BY Purchased_track DESC),
+
+	total_tracks AS 
+					(SELECT  g.GenreId,
+							 g.name AS Genre,
+							 COUNT(t.trackId) AS Track
+					   FROM	 track t
+							 INNER JOIN genre g	ON t.genreId = g.genreId
+					   GROUP BY Genre, g.GenreId)
+
+SELECT tt.Genre, tt.Track,
+	   ROUND(SUM(tt.track) *100/ (SELECT SUM(track) 
+									FROM total_tracks), 2) AS Share_of_tracks,
+	   pt.Purchased_track,
+	   pt.Sales,
+	   ROUND(SUM(Sales) *100/ (SELECT SUM(Sales) 
+								 FROM purchased_tracks), 2) AS Share_of_sales
+  FROM total_tracks tt 
+	   LEFT JOIN  purchased_tracks pt ON tt.GenreId = pt.GenreId
+ GROUP BY tt.Genre, tt.Track, pt.Purchased_track, pt.Sales
+ ORDER BY Track DESC;
+
+*/
+-- 7.4. PROTECTED VS NON-PROTECTED MEDIA TYPES HAVE AN EFFECT ON POPULARITY?
+
+/*
+WITH sales_by_Media AS 
+						(	SELECT	m.MediatypeId AS MediatypeId,
+									m.Name AS Media,
+									COUNT(il.TrackId) AS Track,
+                                    SUM(il.Unitprice) AS Sales,
+									CASE WHEN m.Name LIKE '%Protected%' THEN 'Protected'
+										 ELSE 'Non-protected'
+									END AS Category
+							  FROM 	mediatype m 
+									INNER JOIN track t
+                                    ON m.mediatypeId =  t.MediatypeId
+									INNER JOIN Invoiceline il 
+									ON t.TrackId = il.TrackId
+							  GROUP BY Media, MediatypeId
+							  ORDER BY Track DESC)
+
+SELECT	Category AS Media_Type,
+		SUM(Track) AS Sold_track,
+		ROUND(SUM(Track) *100/ (SELECT SUM(Track) 
+								  FROM sales_by_Media), 2) AS Share_of_soldtracks,
+		SUM(Sales) AS Sales,
+        ROUND(SUM(Sales) *100/ (SELECT SUM(Sales)
+								  FROM sales_by_Media), 2) AS Share_of_sales
+  FROM	sales_by_Media
+GROUP BY Media_Type
+ORDER BY Sold_track;
+
+*/
